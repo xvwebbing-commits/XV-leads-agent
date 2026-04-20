@@ -20,6 +20,8 @@ GMAIL_PASS    = os.environ["GMAIL_PASS"]
 SHEET_ID      = os.environ["SHEET_ID"]
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "")
 
+CONTACTED_TAB = "Contacted History"
+
 COL_NAME   = 2
 COL_PHONE  = 3
 COL_QUERY  = 1
@@ -98,11 +100,22 @@ def slack_notify(text):
             pass
 
 
+def get_contacted_tab(spreadsheet):
+    try:
+        return spreadsheet.worksheet(CONTACTED_TAB)
+    except gspread.WorksheetNotFound:
+        tab = spreadsheet.add_worksheet(title=CONTACTED_TAB, rows=1000, cols=4)
+        tab.append_row(["Date Contacted", "Business Name", "Email", "Phone"])
+        return tab
+
+
 def main():
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds  = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet  = client.open_by_key(SHEET_ID).sheet1
+    spreadsheet = client.open_by_key(SHEET_ID)
+    sheet  = spreadsheet.sheet1
+    contacted_tab = get_contacted_tab(spreadsheet)
 
     all_rows = sheet.get_all_values()
     if len(all_rows) <= 1:
@@ -135,8 +148,10 @@ def main():
 
         sheet_row = i + 2
         if success:
-            sheet.update_cell(sheet_row, COL_STATUS + 1,
-                f"Email sent — {datetime.now().strftime('%Y-%m-%d')}")
+            today = datetime.now().strftime('%Y-%m-%d')
+            sheet.update_cell(sheet_row, COL_STATUS + 1, f"Email sent — {today}")
+            phone = str(row[COL_PHONE]).strip() if len(row) > COL_PHONE else ""
+            contacted_tab.append_row([today, name, email, phone])
             sent += 1
             print(f"    ✓ Sent")
         else:

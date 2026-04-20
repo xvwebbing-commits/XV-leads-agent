@@ -26,6 +26,7 @@ HUNTER_KEY   = os.environ["HUNTER_API_KEY"]
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "")
 
 TOP_N = 10
+CONTACTED_TAB = "Contacted History"
 
 # Column indexes (0-based)
 COL_DATE     = 0
@@ -174,6 +175,18 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
         return False
 
 
+def get_contacted_set(spreadsheet) -> set:
+    """Return a set of lowercased business names already contacted."""
+    try:
+        tab = spreadsheet.worksheet(CONTACTED_TAB)
+    except gspread.WorksheetNotFound:
+        tab = spreadsheet.add_worksheet(title=CONTACTED_TAB, rows=1000, cols=4)
+        tab.append_row(["Date Contacted", "Business Name", "Email", "Phone"])
+        return set()
+    rows = tab.get_all_values()
+    return {r[1].strip().lower() for r in rows[1:] if len(r) > 1 and r[1].strip()}
+
+
 def slack_notify(text: str):
     if SLACK_WEBHOOK:
         try:
@@ -186,7 +199,11 @@ def main():
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds  = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet  = client.open_by_key(SHEET_ID).sheet1
+    spreadsheet = client.open_by_key(SHEET_ID)
+    sheet  = spreadsheet.sheet1
+
+    contacted = get_contacted_set(spreadsheet)
+    print(f"Loaded {len(contacted)} previously-contacted businesses.")
 
     all_rows = sheet.get_all_values()
     if len(all_rows) <= 1:
@@ -211,9 +228,16 @@ def main():
         scored.append((i + 2, score, row))
 
     scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:TOP_N]
 
-    print(f"Scored {len(scored)} leads. Finding emails for top {len(top)}...")
+    # Skip businesses already contacted in prior runs
+    fresh = [
+        s for s in scored
+        if str(s[2][COL_NAME]).strip().lower() not in contacted
+    ]
+    skipped = len(scored) - len(fresh)
+    top = fresh[:TOP_N]
+
+    print(f"Scored {len(scored)} leads ({skipped} already contacted). Finding emails for top {len(top)}...")
 
     found_leads = []
     for sheet_row, score, row in top:

@@ -23,13 +23,26 @@ jobs:
       - name: Install Google Maps scraper
         run: go install github.com/gosom/google-maps-scraper@latest
 
+      - name: Shuffle queries for variety
+        run: |
+          python3 -c "
+          import random
+          with open('queries.txt') as f:
+              lines = [l.strip() for l in f if l.strip()]
+          random.shuffle(lines)
+          subset = lines[:10]
+          with open('queries_run.txt', 'w') as f:
+              f.write('\n'.join(subset) + '\n')
+          print('This run will search:', subset)
+          "
+
       - name: Run scraper
         run: |
           $(go env GOPATH)/bin/google-maps-scraper \
-            -input queries.txt \
+            -input queries_run.txt \
             -results results.csv \
-            -exit-on-inactivity 3m \
-            -depth 1
+            -exit-on-inactivity 5m \
+            -depth 5
 
       - name: Set up Python
         uses: actions/setup-python@v5
