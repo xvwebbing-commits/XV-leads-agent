@@ -7,6 +7,10 @@ from datetime import datetime
 
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread_formatting import (
+    CellFormat, Color, TextFormat, format_cell_range,
+    set_frozen, set_column_width, batch_updater,
+)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -14,6 +18,32 @@ HEADER = [
     "Date Found", "Search Query", "Business Name", "Phone Number",
     "Address", "Category", "Rating", "# Reviews", "Google Maps URL",
 ]
+
+
+def apply_formatting(sheet) -> None:
+    # Dark navy header row
+    header_fmt = CellFormat(
+        backgroundColor=Color(0.05, 0.09, 0.18),
+        textFormat=TextFormat(
+            bold=True,
+            foregroundColor=Color(1, 1, 1),
+            fontSize=11,
+            fontFamily="Inter",
+        ),
+        horizontalAlignment="CENTER",
+        verticalAlignment="MIDDLE",
+    )
+    format_cell_range(sheet, "A1:I1", header_fmt)
+
+    # Freeze header row
+    set_frozen(sheet, rows=1)
+
+    # Column widths (pixels): Date, Query, Name, Phone, Address, Category, Rating, Reviews, URL
+    widths = [110, 180, 220, 140, 260, 140, 80, 90, 280]
+    cols = "ABCDEFGHI"
+    with batch_updater(sheet.spreadsheet) as b:
+        for col, width in zip(cols, widths):
+            b.set_column_width(sheet, col, width)
 
 
 def main(csv_path: str) -> None:
@@ -26,10 +56,11 @@ def main(csv_path: str) -> None:
 
     sheet = client.open_by_key(sheet_id).sheet1
 
-    # Add header row once, if sheet is empty
+    # Add header row and formatting once, if sheet is empty
     existing = sheet.get_all_values()
     if not existing:
         sheet.append_row(HEADER)
+        apply_formatting(sheet)
 
     # Track existing names to dedupe across nightly runs
     existing_names = {row[2].strip().lower() for row in existing[1:] if len(row) >= 3}
