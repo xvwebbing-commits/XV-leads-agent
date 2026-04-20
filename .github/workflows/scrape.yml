@@ -40,10 +40,34 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Push leads to Google Sheet
+        id: push
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
         run: python push_to_sheets.py results.csv
+
+      - name: Notify Slack (success)
+        if: success() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NEW_LEADS: ${{ steps.push.outputs.new_leads }}
+          SKIPPED_SITE: ${{ steps.push.outputs.skipped_has_site }}
+          SKIPPED_DUP: ${{ steps.push.outputs.skipped_dup }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":robot_face: *Nightly Lead Scrape complete* — ${NEW_LEADS} new leads added to sheet. (skipped ${SKIPPED_SITE} with sites, ${SKIPPED_DUP} duplicates) <${RUN_URL}|View run>\"}" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack (failure)
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":x: *Lead scrape failed* — <${RUN_URL}|view logs>\"}" \
+            "$SLACK_WEBHOOK_URL"
 
       - name: Upload raw CSV as artifact
         if: always()

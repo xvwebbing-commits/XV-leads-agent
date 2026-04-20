@@ -74,6 +74,14 @@ def main(csv_path: str) -> None:
     print(f"  Skipped (has website): {skipped_has_site}")
     print(f"  Skipped (duplicate):   {skipped_dup}")
 
+    # Write counts to GitHub Actions output for Slack notification
+    gh_out = os.environ.get("GITHUB_OUTPUT")
+    if gh_out:
+        with open(gh_out, "a") as f:
+            f.write(f"new_leads={len(new_rows)}\n")
+            f.write(f"skipped_has_site={skipped_has_site}\n")
+            f.write(f"skipped_dup={skipped_dup}\n")
+
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "results.csv")
