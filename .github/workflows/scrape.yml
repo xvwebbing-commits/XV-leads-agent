@@ -2,8 +2,8 @@ name: Nightly Lead Scrape
 
 on:
   schedule:
-    # 1:00 AM Eastern = 06:00 UTC. Change the first number to shift the hour (UTC).
-    - cron: '0 6 * * *'
+    # Every Monday at 1:00 AM Eastern (06:00 UTC). Change 1 to another day (0=Sun, 2=Tue...).
+    - cron: '0 6 * * 1'
   workflow_dispatch:  # lets you run it manually from the Actions tab
 
 jobs:

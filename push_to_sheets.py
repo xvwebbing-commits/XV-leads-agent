@@ -56,14 +56,11 @@ def main(csv_path: str) -> None:
 
     sheet = client.open_by_key(sheet_id).sheet1
 
-    # Add header row and formatting once, if sheet is empty
-    existing = sheet.get_all_values()
-    if not existing:
-        sheet.append_row(HEADER)
-        apply_formatting(sheet)
+    # Clear sheet and write fresh header every weekly run
+    sheet.clear()
+    sheet.append_row(HEADER)
 
-    # Track existing names to dedupe across nightly runs
-    existing_names = {row[2].strip().lower() for row in existing[1:] if len(row) >= 3}
+    existing_names = set()
 
     today = datetime.now().strftime("%Y-%m-%d")
     new_rows = []
