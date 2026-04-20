@@ -46,6 +46,16 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
         run: python push_to_sheets.py results.csv
 
+      - name: Score leads and find emails
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: pip install requests && python email_leads.py
+
       - name: Notify Slack (success)
         if: success() && env.SLACK_WEBHOOK_URL != ''
         env:

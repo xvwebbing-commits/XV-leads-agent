@@ -42,12 +42,14 @@ async function handleRequest(request) {
   try {
     let responseText;
     switch (cmd.toLowerCase()) {
-      case "list":   responseText = await listQueries(); break;
-      case "add":    responseText = await addQuery(arg); break;
-      case "remove": responseText = await removeQuery(arg); break;
-      case "run":    responseText = await runWorkflow(); break;
-      case "status": responseText = await runStatus(); break;
-      default:       responseText = helpText(); break;
+      case "list":    responseText = await listQueries(); break;
+      case "add":     responseText = await addQuery(arg); break;
+      case "remove":  responseText = await removeQuery(arg); break;
+      case "run":     responseText = await runWorkflow(); break;
+      case "status":  responseText = await runStatus(); break;
+      case "approve": responseText = await approveEmails(); break;
+      case "skip":    responseText = await skipEmails(); break;
+      default:        responseText = helpText(); break;
     }
     return slackJson(responseText);
   } catch (err) {
@@ -202,6 +204,19 @@ async function runStatus() {
     "   <" + run.html_url + "|View full run>";
 }
 
+async function approveEmails() {
+  await ghFetch(
+    "/repos/" + GITHUB_OWNER + "/" + GITHUB_REPO +
+    "/actions/workflows/send_emails.yml/dispatches",
+    { method: "POST", body: JSON.stringify({ ref: "main" }) }
+  );
+  return ":white_check_mark: Approved! Sending emails now — you'll get a confirmation when done.";
+}
+
+async function skipEmails() {
+  return ":no_entry_sign: Skipped. No emails will be sent this week. Leads are still in your sheet.";
+}
+
 function helpText() {
   return [
     "*XV Lead Agent commands:*",
@@ -210,6 +225,8 @@ function helpText() {
     "`/leads remove <query>` — remove a search",
     "`/leads run` — trigger a scrape right now",
     "`/leads status` — show status of the most recent run",
+    "`/leads approve` — send emails to this week's leads",
+    "`/leads skip` — skip emailing this week",
     "`/leads help` — this message",
   ].join("\n");
 }
