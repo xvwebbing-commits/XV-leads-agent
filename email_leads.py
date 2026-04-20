@@ -239,6 +239,21 @@ def main():
 
     print(f"Scored {len(scored)} leads ({skipped} already contacted). Finding emails for top {len(top)}...")
 
+    # Mark all top picks as seen immediately so they don't repeat next run
+    try:
+        contacted_tab = spreadsheet.worksheet(CONTACTED_TAB)
+    except gspread.WorksheetNotFound:
+        contacted_tab = spreadsheet.add_worksheet(title=CONTACTED_TAB, rows=1000, cols=4)
+        contacted_tab.append_row(["Date Contacted", "Business Name", "Email", "Phone"])
+
+    today = datetime.now().strftime('%Y-%m-%d')
+    for _, _, row in top:
+        name_val = str(row[COL_NAME]).strip()
+        if name_val.lower() not in contacted:
+            phone_val = str(row[COL_PHONE]).strip() if len(row) > COL_PHONE else ""
+            contacted_tab.append_row([today, name_val, "", phone_val])
+            contacted.add(name_val.lower())
+
     found_leads = []
     for sheet_row, score, row in top:
         name  = str(row[COL_NAME]).strip()
