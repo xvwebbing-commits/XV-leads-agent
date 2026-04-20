@@ -57,10 +57,9 @@ I was searching for {trade.lower()}s in {city} on Google Maps and came across yo
 My name is Ryan, and I run XV Connects. We build clean, professional websites specifically for local businesses like yours. A lot of our clients say their website became their #1 source of new customers within the first few months.
 
 Here's what we offer:
-  • Custom website built for your business — starting at $500 one-time
-  • Or fully managed hosting for just $200 setup + $20/month
+  • Custom website built specifically for your business
   • Fast turnaround — most sites go live in 7–14 days
-  • Mobile-first, SEO-optimized, and built to convert visitors into calls
+  • Built to turn website visitors into phone calls
 
 No lock-in contracts. You own everything.
 
