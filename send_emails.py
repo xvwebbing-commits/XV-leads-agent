@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import gspread
+from gspread.utils import rowcol_to_a1
 import requests
 from google.oauth2.service_account import Credentials
 
@@ -92,6 +93,19 @@ def send_email(to_email, subject, body):
         return False
 
 
+def color_row(sheet, row_num, rgb):
+    """Color an entire row with the given RGB dict, e.g. {"red":0.9,"green":1,"blue":0.6}."""
+    last_col = COL_STATUS + 1
+    sheet.format(
+        f"A{row_num}:{rowcol_to_a1(row_num, last_col)}",
+        {"backgroundColor": rgb}
+    )
+
+
+GREEN  = {"red": 0.72, "green": 0.96, "blue": 0.72}
+YELLOW = {"red": 1.0,  "green": 0.95, "blue": 0.6}
+
+
 def slack_notify(text):
     if SLACK_WEBHOOK:
         try:
@@ -150,6 +164,7 @@ def main():
         if success:
             today = datetime.now().strftime('%Y-%m-%d')
             sheet.update_cell(sheet_row, COL_STATUS + 1, f"Email sent — {today}")
+            color_row(sheet, sheet_row, GREEN)
             phone = str(row[COL_PHONE]).strip() if len(row) > COL_PHONE else ""
             contacted_tab.append_row([today, name, email, phone])
             sent += 1

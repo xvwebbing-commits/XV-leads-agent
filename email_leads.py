@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import gspread
+from gspread.utils import rowcol_to_a1
 import requests
 from google.oauth2.service_account import Credentials
 
@@ -41,6 +42,17 @@ COL_URL      = 8
 COL_SCORE    = 9
 COL_EMAIL    = 10
 COL_STATUS   = 11
+
+YELLOW = {"red": 1.0, "green": 0.95, "blue": 0.6}
+
+
+def color_row(sheet, row_num, rgb):
+    last_col = COL_STATUS + 1
+    sheet.format(
+        f"A{row_num}:{rowcol_to_a1(row_num, last_col)}",
+        {"backgroundColor": rgb}
+    )
+
 
 HIGH_VALUE_TRADES = [
     "electrician", "plumber", "plumbing", "hvac", "roofing", "roofer",
@@ -278,6 +290,7 @@ def main():
         if email:
             sheet.update_cell(sheet_row, COL_EMAIL + 1, email)
             sheet.update_cell(sheet_row, COL_STATUS + 1, "Email found — pending approval")
+            color_row(sheet, sheet_row, YELLOW)
             found_leads.append({
                 "sheet_row": sheet_row,
                 "name": name,
