@@ -79,6 +79,7 @@ def send_email(to_email, subject, body):
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"]    = f"Ryan @ XV Connects <{GMAIL_USER}>"
+
         msg["To"]      = to_email
         msg.attach(MIMEText(body, "plain"))
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
