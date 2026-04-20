@@ -1,0 +1,54 @@
+name: Nightly Lead Scrape
+
+on:
+  schedule:
+    # 1:00 AM Eastern = 06:00 UTC. Change the first number to shift the hour (UTC).
+    - cron: '0 6 * * *'
+  workflow_dispatch:  # lets you run it manually from the Actions tab
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install Google Maps scraper
+        run: go install github.com/gosom/google-maps-scraper@latest
+
+      - name: Run scraper
+        run: |
+          $(go env GOPATH)/bin/google-maps-scraper \
+            -input queries.txt \
+            -results results.csv \
+            -exit-on-inactivity 3m \
+            -depth 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Push leads to Google Sheet
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: python push_to_sheets.py results.csv
+
+      - name: Upload raw CSV as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-results
+          path: results.csv
+          retention-days: 14
