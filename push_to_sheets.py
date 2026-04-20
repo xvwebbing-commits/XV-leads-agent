@@ -39,11 +39,15 @@ def apply_formatting(sheet) -> None:
     set_frozen(sheet, rows=1)
 
     # Column widths (pixels): Date, Query, Name, Phone, Address, Category, Rating, Reviews, URL
-    widths = [110, 180, 220, 140, 260, 140, 80, 90, 280]
+    widths = [110, 180, 220, 140, 260, 140, 80, 90, 120]
     cols = "ABCDEFGHI"
     with batch_updater(sheet.spreadsheet) as b:
         for col, width in zip(cols, widths):
             b.set_column_width(sheet, col, width)
+
+    # Clip URL column and keep all rows from overflowing
+    from gspread_formatting import WrapStrategy
+    format_cell_range(sheet, "A2:L1000", CellFormat(wrapStrategy=WrapStrategy("CLIP")))
 
 
 def main(csv_path: str) -> None:
