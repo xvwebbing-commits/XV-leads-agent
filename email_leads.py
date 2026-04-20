@@ -139,7 +139,7 @@ def build_email_body(name: str, trade: str, city: str) -> tuple[str, str]:
 
 I was searching for {trade.lower()}s in {city} on Google Maps and came across your business. I noticed you don't have a website yet — I think that's a big opportunity.
 
-My name is Ryan, and I run XV Webbing. We build clean, professional websites specifically for local businesses like yours. A lot of our clients say their website became their #1 source of new customers within the first few months.
+My name is Ryan, and I run XV Connects. We build clean, professional websites specifically for local businesses like yours. A lot of our clients say their website became their #1 source of new customers within the first few months.
 
 Here's what we offer:
   • Custom website built for your business — starting at $500 one-time
@@ -153,8 +153,8 @@ Would you be open to a quick 10-minute call this week to see if it's a good fit?
 
 Best,
 Ryan Krauss
-XV Webbing
-xvwebbing@gmail.com
+XV Connects
+xvconnects@gmail.com
 """
     return subject, body
 
@@ -163,7 +163,7 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"]    = f"Ryan @ XV Webbing <{GMAIL_USER}>"
+        msg["From"]    = f"Ryan @ XV Connects <{GMAIL_USER}>"
         msg["To"]      = to_email
         msg.attach(MIMEText(body, "plain"))
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
