@@ -11,8 +11,8 @@ from google.oauth2.service_account import Credentials
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 HEADER = [
-    "date_found", "query", "name", "phone", "address",
-    "category", "rating", "reviews", "maps_url",
+    "Date Found", "Search Query", "Business Name", "Phone Number",
+    "Address", "Category", "Rating", "# Reviews", "Google Maps URL",
 ]
 
 
