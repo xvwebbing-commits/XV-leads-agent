@@ -286,6 +286,7 @@ def main():
                 "trade": trade,
                 "city": city,
                 "score": score,
+                "reviews": row[COL_REVIEWS] if len(row) > COL_REVIEWS else "",
             })
             print(f"    ✓ Found: {email}")
         else:
@@ -294,11 +295,27 @@ def main():
 
     # Slack summary asking for approval
     if found_leads:
-        lines = [f":email: *Weekly leads ready — {len(found_leads)} emails found. Reply `/leads approve` to send or `/leads skip` to cancel.*\n"]
+        lines = [f":email: *{len(found_leads)} leads ready to email. Reply `/leads approve` to send or `/leads skip` to cancel.*\n"]
         for l in found_leads:
-            subject, body = build_email_body(l['name'], l['trade'], l['city'])
-        preview = body.split('\n')[2][:120]  # first real line of body
-        lines.append(f"  • *{l['name']}* | {l['email']} | Score: {l['score']}/100\n    _{preview}..._")
+            score = l['score']
+            # Build score reasoning
+            reasons = []
+            try:
+                reviews = int(str(l.get('reviews', 0)).replace(',', ''))
+                if reviews >= 50:   reasons.append(f"{reviews} reviews")
+                elif reviews >= 20: reasons.append(f"{reviews} reviews")
+                elif reviews >= 1:  reasons.append(f"{reviews} reviews")
+            except Exception:
+                pass
+            if any(t in l['trade'].lower() for t in [t for t in HIGH_VALUE_TRADES]):
+                reasons.append(f"high-value trade ({l['trade']})")
+            if l['phone']:
+                reasons.append("has phone number")
+            reason_str = ", ".join(reasons) if reasons else "good overall profile"
+            lines.append(
+                f"  • *{l['name']}* — Score: {score}/100 _(why: {reason_str})_\n"
+                f"    :email: {l['email']} | :phone: {l['phone'] or 'none'} | {l['trade']} in {l['city']}"
+            )
         slack_notify("\n".join(lines))
         print(f"\n✓ Slacked approval request for {len(found_leads)} leads")
     else:
