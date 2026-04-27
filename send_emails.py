@@ -4,6 +4,7 @@ Triggered by /leads approve in Slack.
 """
 import json
 import os
+import re
 import smtplib
 import time
 from datetime import datetime
@@ -14,21 +15,27 @@ import gspread
 from gspread.utils import rowcol_to_a1
 import requests
 from google.oauth2.service_account import Credentials
+from openai import OpenAI
 
 SCOPES        = ["https://www.googleapis.com/auth/spreadsheets"]
 GMAIL_USER    = os.environ["GMAIL_USER"]
 GMAIL_PASS    = os.environ["GMAIL_PASS"]
 SHEET_ID      = os.environ["SHEET_ID"]
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "")
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
+NVIDIA_MODEL   = "meta/llama-3.3-70b-instruct"
 
 CONTACTED_TAB = "Contacted History"
 
-COL_NAME   = 2
-COL_PHONE  = 3
-COL_QUERY  = 1
-COL_SCORE  = 9
-COL_EMAIL  = 10
-COL_STATUS = 11
+COL_QUERY    = 1
+COL_NAME     = 2
+COL_PHONE    = 3
+COL_CATEGORY = 5
+COL_RATING   = 6
+COL_REVIEWS  = 7
+COL_SCORE    = 9
+COL_EMAIL    = 10
+COL_STATUS   = 11
 
 HIGH_VALUE_TRADES = [
     "electrician", "plumber", "plumbing", "hvac", "roofing", "roofer",
@@ -51,7 +58,30 @@ def get_city(row):
     return " ".join(parts[-2:]) if len(parts) >= 2 else "your area"
 
 
-def build_email(name, trade, city):
+EMAIL_SYSTEM_PROMPT = """You are Ryan Krauss, founder of XV Connects, a web design agency that builds clean, modern websites for local trade businesses. You're writing a cold email to a business owner whose Google Maps listing has no website link.
+
+Tone and rules:
+- Conversational and human. Write like a real person, not a sales bot.
+- Open with a specific observation about their business (their trade, city, and rating/reviews if notable). Do NOT use generic openers like "I hope this finds you well" or "I came across your business".
+- One short paragraph about XV Connects: clean modern websites, fast turnaround (7–14 days), no lock-in contracts, owner keeps everything.
+- Soft CTA: a quick 10-minute call this week.
+- Sign off exactly with this signature, on three separate lines:
+    Best,
+    Ryan Krauss
+    XV Connects
+    xvconnects@gmail.com
+- Total body length: 4–6 short sentences plus the signature. No bullet lists.
+- Subject line: 6–10 words, intriguing but not spammy. Avoid all caps and exclamation points.
+
+Return ONLY a JSON object, no markdown, no commentary:
+{"subject": "<subject line>", "body": "<email body with line breaks>"}"""
+
+
+def _strip_code_fences(text: str) -> str:
+    return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
+
+
+def _template_email(name, trade, city):
     subject = f"Quick question about {name}'s online presence"
     body = f"""Hi {name},
 
@@ -74,6 +104,44 @@ XV Connects
 xvconnects@gmail.com
 """
     return subject, body
+
+
+def build_email(name, trade, city, row=None):
+    """Draft a personalized cold email via NVIDIA Llama 3.3 70B. Falls back to template on error."""
+    if not NVIDIA_API_KEY:
+        return _template_email(name, trade, city)
+
+    business = {
+        "name":  name,
+        "trade": trade,
+        "city":  city,
+    }
+    if row is not None:
+        business["category"] = str(row[COL_CATEGORY]).strip() if len(row) > COL_CATEGORY else ""
+        business["rating"]   = str(row[COL_RATING]).strip()   if len(row) > COL_RATING   else ""
+        business["reviews"]  = str(row[COL_REVIEWS]).strip()  if len(row) > COL_REVIEWS  else ""
+
+    try:
+        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+        resp = client.chat.completions.create(
+            model=NVIDIA_MODEL,
+            messages=[
+                {"role": "system", "content": EMAIL_SYSTEM_PROMPT},
+                {"role": "user",   "content": json.dumps(business)},
+            ],
+            temperature=0.6,
+            max_tokens=700,
+        )
+        content = _strip_code_fences(resp.choices[0].message.content or "")
+        data = json.loads(content)
+        subject = str(data.get("subject", "")).strip()
+        body    = str(data.get("body", "")).strip()
+        if not subject or len(body) < 100:
+            raise ValueError("LLM returned incomplete email")
+        return subject, body
+    except Exception as e:
+        print(f"  LLM draft failed for {name}: {e} — using template")
+        return _template_email(name, trade, city)
 
 
 def send_email(to_email, subject, body):
@@ -157,7 +225,7 @@ def main():
             continue
 
         print(f"  Sending to {name} <{email}>...")
-        subject, body = build_email(name, trade, city)
+        subject, body = build_email(name, trade, city, row=row)
         success = send_email(email, subject, body)
 
         sheet_row = i + 2

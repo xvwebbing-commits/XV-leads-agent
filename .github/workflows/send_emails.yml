@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install gspread google-auth requests
+        run: pip install -r requirements.txt
 
       - name: Send emails
         env:
@@ -28,4 +28,5 @@ jobs:
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: python send_emails.py

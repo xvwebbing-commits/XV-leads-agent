@@ -18,6 +18,7 @@ import gspread
 from gspread.utils import rowcol_to_a1
 import requests
 from google.oauth2.service_account import Credentials
+from openai import OpenAI
 
 SCOPES       = ["https://www.googleapis.com/auth/spreadsheets"]
 GMAIL_USER   = os.environ["GMAIL_USER"]
@@ -25,6 +26,8 @@ GMAIL_PASS   = os.environ["GMAIL_PASS"]
 SHEET_ID     = os.environ["SHEET_ID"]
 HUNTER_KEY   = os.environ["HUNTER_API_KEY"]
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "")
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
+NVIDIA_MODEL   = "meta/llama-3.3-70b-instruct"
 
 TOP_N = 10
 CONTACTED_TAB = "Contacted History"
@@ -61,7 +64,27 @@ HIGH_VALUE_TRADES = [
 ]
 
 
-def score_lead(row: list) -> int:
+SCORE_SYSTEM_PROMPT = """You are a sales analyst for XV Connects, a web design agency that builds websites for local trade businesses (electricians, plumbers, HVAC, roofers, contractors, landscapers, etc.) that don't yet have a website.
+
+Score this lead 0-100 on its potential value as a customer. Higher scores go to:
+- Established businesses with healthy review counts (20+) and ratings (4.0+)
+- High-revenue trades where a website drives measurable ROI: HVAC, plumbing, roofing, electrical, general contracting
+- Reachable leads (has a phone number)
+
+Lower scores go to:
+- Very small businesses (under 5 reviews) — usually not ready to invest yet
+- Low-rated businesses (under 3.5 stars)
+- Trades where customers rarely search online (some niche services)
+
+Return ONLY a JSON object, no markdown, no commentary:
+{"score": <integer 0-100>, "reason": "<one short sentence under 90 chars>"}"""
+
+
+def _strip_code_fences(text: str) -> str:
+    return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
+
+
+def _rule_score_lead(row: list) -> int:
     score = 0
     try:
         reviews = int(str(row[COL_REVIEWS]).replace(",", "").strip())
@@ -89,6 +112,42 @@ def score_lead(row: list) -> int:
         score += 10
 
     return min(score, 100)
+
+
+def score_lead(row: list) -> tuple[int, str]:
+    """Score a lead 0-100 with a one-line reason. Uses NVIDIA Llama 3.3 70B; falls back to rules."""
+    if not NVIDIA_API_KEY:
+        return _rule_score_lead(row), "rule-based score (no NVIDIA key)"
+
+    name = str(row[COL_NAME]).strip() if len(row) > COL_NAME else ""
+    business = {
+        "name":     name,
+        "category": str(row[COL_CATEGORY]).strip() if len(row) > COL_CATEGORY else "",
+        "rating":   str(row[COL_RATING]).strip()   if len(row) > COL_RATING   else "",
+        "reviews":  str(row[COL_REVIEWS]).strip()  if len(row) > COL_REVIEWS  else "",
+        "phone":    str(row[COL_PHONE]).strip()    if len(row) > COL_PHONE    else "",
+        "city":     get_city(row),
+    }
+
+    try:
+        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+        resp = client.chat.completions.create(
+            model=NVIDIA_MODEL,
+            messages=[
+                {"role": "system", "content": SCORE_SYSTEM_PROMPT},
+                {"role": "user",   "content": json.dumps(business)},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+        )
+        content = _strip_code_fences(resp.choices[0].message.content or "")
+        data = json.loads(content)
+        score = int(data["score"])
+        reason = str(data.get("reason", "")).strip() or "scored by LLM"
+        return max(0, min(100, score)), reason[:120]
+    except Exception as e:
+        print(f"  LLM score failed for {name}: {e} — falling back to rules")
+        return _rule_score_lead(row), "rule-based fallback (LLM error)"
 
 
 def get_trade(row: list) -> str:
@@ -231,20 +290,20 @@ def main():
         sheet.update_cell(1, COL_EMAIL  + 1, "Email Found")
         sheet.update_cell(1, COL_STATUS + 1, "Email Status")
 
-    # Score all leads
+    # Score all leads (LLM-based, falls back to rules on error)
     scored = []
     for i, row in enumerate(rows):
         while len(row) < COL_STATUS + 1:
             row.append("")
-        score = score_lead(row)
-        scored.append((i + 2, score, row))
+        score, reason = score_lead(row)
+        scored.append((i + 2, score, reason, row))
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
     # Skip businesses already contacted in prior runs
     fresh = [
         s for s in scored
-        if str(s[2][COL_NAME]).strip().lower() not in contacted
+        if str(s[3][COL_NAME]).strip().lower() not in contacted
     ]
     skipped = len(scored) - len(fresh)
     top = fresh[:TOP_N]
@@ -259,7 +318,7 @@ def main():
         contacted_tab.append_row(["Date Contacted", "Business Name", "Email", "Phone"])
 
     today = datetime.now().strftime('%Y-%m-%d')
-    for _, _, row in top:
+    for _, _, _, row in top:
         name_val = str(row[COL_NAME]).strip()
         if name_val.lower() not in contacted:
             phone_val = str(row[COL_PHONE]).strip() if len(row) > COL_PHONE else ""
@@ -267,7 +326,7 @@ def main():
             contacted.add(name_val.lower())
 
     found_leads = []
-    for sheet_row, score, row in top:
+    for sheet_row, score, reason, row in top:
         name  = str(row[COL_NAME]).strip()
         city  = get_city(row)
         trade = get_trade(row)
@@ -299,6 +358,7 @@ def main():
                 "trade": trade,
                 "city": city,
                 "score": score,
+                "reason": reason,
                 "reviews": row[COL_REVIEWS] if len(row) > COL_REVIEWS else "",
             })
             print(f"    ✓ Found: {email}")
@@ -310,23 +370,8 @@ def main():
     if found_leads:
         lines = [f":email: *{len(found_leads)} leads ready to email. Reply `/leads approve` to send or `/leads skip` to cancel.*\n"]
         for l in found_leads:
-            score = l['score']
-            # Build score reasoning
-            reasons = []
-            try:
-                reviews = int(str(l.get('reviews', 0)).replace(',', ''))
-                if reviews >= 50:   reasons.append(f"{reviews} reviews")
-                elif reviews >= 20: reasons.append(f"{reviews} reviews")
-                elif reviews >= 1:  reasons.append(f"{reviews} reviews")
-            except Exception:
-                pass
-            if any(t in l['trade'].lower() for t in [t for t in HIGH_VALUE_TRADES]):
-                reasons.append(f"high-value trade ({l['trade']})")
-            if l['phone']:
-                reasons.append("has phone number")
-            reason_str = ", ".join(reasons) if reasons else "good overall profile"
             lines.append(
-                f"  • *{l['name']}* — Score: {score}/100 _(why: {reason_str})_\n"
+                f"  • *{l['name']}* — Score: {l['score']}/100 _(why: {l['reason']})_\n"
                 f"    :email: {l['email']} | :phone: {l['phone'] or 'none'} | {l['trade']} in {l['city']}"
             )
         slack_notify("\n".join(lines))

@@ -67,7 +67,8 @@ jobs:
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: pip install requests && python email_leads.py
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python email_leads.py
 
       - name: Notify Slack (success)
         if: success() && env.SLACK_WEBHOOK_URL != ''
