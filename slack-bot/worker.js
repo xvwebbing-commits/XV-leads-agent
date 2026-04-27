@@ -7,6 +7,9 @@
  *   remove <query>  — remove a search
  *   run             — trigger a scrape right now
  *   status          — show last run status
+ *   approve         — send this week's emails
+ *   skip            — skip emailing this week
+ *   ask <question>  — chat with Llama 3.3 70B
  *   help            — show commands
  *
  * Environment variables (set in Cloudflare Worker → Settings → Variables):
@@ -15,15 +18,18 @@
  *   GITHUB_OWNER
  *   GITHUB_REPO
  *   WORKFLOW_FILE
+ *   NVIDIA_API_KEY        (required for /leads ask)
  */
 
 const QUERIES_PATH = "queries.txt";
+const NVIDIA_MODEL = "meta/llama-3.3-70b-instruct";
 
 addEventListener("fetch", (event) => {
-  event.respondWith(handleRequest(event.request));
+  event.respondWith(handleRequest(event));
 });
 
-async function handleRequest(request) {
+async function handleRequest(event) {
+  const request = event.request;
   if (request.method !== "POST") {
     return new Response("XV Lead Bot — POST slash commands here.", { status: 200 });
   }
@@ -38,6 +44,7 @@ async function handleRequest(request) {
   const parts = text.split(/\s+/);
   const cmd = parts[0] || "help";
   const arg = parts.slice(1).join(" ").trim();
+  const responseUrl = params.get("response_url") || "";
 
   try {
     let responseText;
@@ -49,6 +56,7 @@ async function handleRequest(request) {
       case "status":  responseText = await runStatus(); break;
       case "approve": responseText = await approveEmails(); break;
       case "skip":    responseText = await skipEmails(); break;
+      case "ask":     responseText = askLlm(arg, responseUrl, event); break;
       default:        responseText = helpText(); break;
     }
     return slackJson(responseText);
@@ -217,6 +225,69 @@ async function skipEmails() {
   return ":no_entry_sign: Skipped. No emails will be sent this week. Leads are still in your sheet.";
 }
 
+// ——— /leads ask — chat with Llama 3.3 70B ———
+//
+// Slack requires a slash-command response within 3 seconds, but the LLM call
+// usually takes 5–15s. We reply immediately with "Thinking…", then post the
+// real answer back via the response_url after the fetch resolves.
+
+function askLlm(question, responseUrl, event) {
+  if (!question) {
+    return "Usage: `/leads ask <your question>`  e.g. `/leads ask write me a follow-up email to a plumber`";
+  }
+  if (typeof NVIDIA_API_KEY === "undefined" || !NVIDIA_API_KEY) {
+    return ":warning: Cloudflare Worker is missing `NVIDIA_API_KEY`. Add it in Worker → Settings → Variables.";
+  }
+  if (!responseUrl) {
+    return ":warning: No response_url from Slack — async reply not possible.";
+  }
+
+  event.waitUntil(answerInBackground(question, responseUrl));
+  return ":thought_balloon: Thinking…";
+}
+
+async function answerInBackground(question, responseUrl) {
+  try {
+    const llmResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + NVIDIA_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: NVIDIA_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful AI assistant for Ryan Krauss, founder of XV Connects (a web-design agency for local trade businesses). Be concise, direct, and useful. Avoid filler. Use plain text — Slack supports basic markdown (asterisks for bold, backticks for code), but not headings or tables.",
+          },
+          { role: "user", content: question },
+        ],
+        temperature: 0.7,
+        max_tokens: 800,
+      }),
+    });
+    if (!llmResp.ok) {
+      const errText = await llmResp.text();
+      await postToSlack(responseUrl, ":warning: NVIDIA error " + llmResp.status + ": " + errText.slice(0, 300));
+      return;
+    }
+    const data = await llmResp.json();
+    const reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || "").trim();
+    await postToSlack(responseUrl, reply || "(empty response)");
+  } catch (err) {
+    await postToSlack(responseUrl, ":warning: LLM call failed: " + (err.message || String(err)));
+  }
+}
+
+async function postToSlack(responseUrl, text) {
+  return fetch(responseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response_type: "in_channel", text, replace_original: true }),
+  });
+}
+
 function helpText() {
   return [
     "*XV Lead Agent commands:*",
@@ -227,6 +298,7 @@ function helpText() {
     "`/leads status` — show status of the most recent run",
     "`/leads approve` — send emails to this week's leads",
     "`/leads skip` — skip emailing this week",
+    "`/leads ask <question>` — chat with Llama 3.3 70B",
     "`/leads help` — this message",
   ].join("\n");
 }
